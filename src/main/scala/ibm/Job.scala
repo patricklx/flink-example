@@ -24,25 +24,28 @@ import org.apache.flink.streaming.connectors.mqtt._
 import org.apache.flink.streaming.connectors.mqtt.internal.RunningChecker
 import org.apache.flink.api.scala._
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
+import org.apache.flink.streaming.api.scala.DataStream
+import org.apache.flink.streaming.api.scala.KeyedStream
 import org.apache.flink.streaming.util.serialization.{DeserializationSchema, SerializationSchema, SimpleStringSchema}
-
+import rapture.json.Json,org.apache.flink.api.java.tuple.Tuple
 import rapture.json._, jsonBackends.jawn._
-/**
- * Skeleton for a Flink Job.
- *
- * You can also generate a .jar file that you can submit on your Flink
- * cluster. Just type
- * {{{
- *   sbt clean assembly
- * }}}
- * in the projects root directory. You will find the jar in
- * target/scala-2.11/Flink\ Project-assembly-0.1-SNAPSHOT.jar
- *
- */
-
-
+import rapture.core._
+import modes.keepCalmAndCarryOn._
+//import modes.returnOption._
 
 object Job {
+
+  def counter(stream: KeyedStream[(String, Json), Tuple]): Unit = {
+    val result = stream.process(new CounterFunction())
+    result.print()
+  }
+
+  def waterLeak(stream: KeyedStream[(String, Json), Tuple]): Unit = {
+    var filtered = stream.filter { _ match {case (user: String, data: Json) => data.d.states.waterLeakage.value == true}}
+    var hazard = stream.map { _ match {case (user: String, data: Json) => s"""{"user": $user, "shield": "waterleak"}"""}}
+    hazard.print()
+  }
+
   def main(args: Array[String]) {
     // set up the execution environment
     val env = StreamExecutionEnvironment.getExecutionEnvironment
@@ -54,8 +57,8 @@ object Job {
     val brokerUrl = parameterTool.get("brokerUrl", "ssl://ts46va.messaging.internetofthings.ibmcloud.com:8883")
     val topic = parameterTool.get("topic", "iot-2/type/+/id/+/evt/+/fmt/json")
     val org = parameterTool.get("org", "ts46va")
-    val apiKey = parameterTool.get("api-key", "a-ts46va-p806hlysdv")
-    val authToken = parameterTool.get("auth-token", "FN75DH2KFqRxUM(gyV")
+    val apiKey = parameterTool.get("api-key", "a-ts46va-hjn3o39irt")
+    val authToken = parameterTool.get("auth-token", "W0i*R09U*_I@1eiT+_")
     var appId = parameterTool.get("app-id", "flink-mqtt-patrick")
 
     env.getConfig.disableSysoutLogging()
@@ -71,34 +74,25 @@ object Job {
     val topics = Array(topic)
 
     //brokerURL: String, userName: String, password: String, clientId: String, deserializationSchema: DeserializationSchema[OUT], runningChecker: RunningChecker, topicNames: Array[String]
-    //"a-ts46va-p806hlysdv", "FN75DH2KFqRxUM(gyV",
-    //"a:ts46va:flink-mqtt-patrick",
     val mqttSCDemoSrc = new MQTTSourceConfig(
       brokerUrl,
       apiKey, authToken,
-      s"a:$org:$appId",
-//      "a-f2msp0-fgpooukoh3", "Q)x2jui2zqGt9Y_wZ5",
-//      "a:f2msp0:flink-mqtt-patrick",
+      s"A:$org:$appId",
       deserializationSchema,rc,
-      topics);   // get all events
+      topics
+    );
 
     System.out.println("Create MQTT Source")
     val mqttSource = new MQTTSource(mqttSCDemoSrc)
     val messageStream = env.addSource(mqttSource)
 
-    def mapper(x: String): (String,Json) = {
-      try {
-        val o = Json.parse(x)
-        return (o.username.as[String], o)
-      } catch {
-        case unknown => return (null, null)
-      }
-    }
-    var dataStream = messageStream.map { x => mapper(x)}
-    dataStream = dataStream.filter { x => x._1 != null}
-    dataStream = dataStream.filter { x => x._1 == "patrick-2"}
-    val result = dataStream.keyBy(0).process(new TimeoutStateFunction())
-    result.print()
+    var dataStream = messageStream.map { x => Json.parse(x)}
+    dataStream = dataStream.filter {x => x.username.as[String] != null}
+    val mappedStream = dataStream.map { x: Json => (x.username.as[String], x) }
+    val keyedStream = mappedStream.keyBy(0)
+
+    this.counter(keyedStream)
+    this.waterLeak(keyedStream)
     // execute program
     env.execute("Flink Scala API Skeleton")
   }

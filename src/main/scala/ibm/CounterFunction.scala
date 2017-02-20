@@ -15,7 +15,7 @@ class Counter(var count: Long) {
   }
 }
 
-class TimeoutStateFunction extends RichProcessFunction[(String, Json), String] {
+class CounterFunction extends RichProcessFunction[(String, Json), String] {
 
   /** The state that is maintained by this process function */
   lazy val state: ValueState[Counter] = getRuntimeContext().getState(new ValueStateDescriptor("myState", classOf[Counter]))
